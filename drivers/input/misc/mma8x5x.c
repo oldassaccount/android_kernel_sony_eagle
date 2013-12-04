@@ -27,6 +27,7 @@
 #include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/input-polldev.h>
+#include <linux/sensors.h>
 #include <linux/regulator/consumer.h>
 #include <linux/of_gpio.h>
 
@@ -53,6 +54,20 @@
 #define MMA8X5X_BUF_SIZE	7
 
 #define	MMA_SHUTTEDDOWN		(1 << 31)
+
+static struct sensors_classdev sensors_cdev = {
+	.name = "mma8x5x-accel",
+	.vendor = "Freescale",
+	.version = 1,
+	.handle = SENSORS_ACCELERATION_HANDLE,
+	.type = SENSOR_TYPE_ACCELEROMETER,
+	.max_range = "19.6",
+	.resolution = "0.01",
+	.sensor_power = "0.2",
+	.min_delay = 2000,
+	.fifo_reserved_event_count = 0,
+	.fifo_max_event_count = 0,
+};
 
 struct sensor_regulator {
 	struct regulator *vreg;
@@ -643,11 +658,19 @@ static int __devinit mma8x5x_probe(struct i2c_client *client,
 		result = -EINVAL;
 		goto err_create_sysfs;
 	}
+	result = sensors_classdev_register(&client->dev, &sensors_cdev);
+	if (result) {
+		dev_err(&client->dev, "create class device file failed!\n");
+		result = -EINVAL;
+		goto err_create_class_sysfs;
+	}
 	dev_info(&client->dev,
 		"%s:mma8x5x device driver probe successfully, position =%d\n",
 		__func__, pdata->position);
 
 	return 0;
+err_create_class_sysfs:
+	sysfs_remove_group(&idev->dev.kobj, &mma8x5x_attr_group);
 err_create_sysfs:
 	input_unregister_polled_device(pdata->poll_dev);
 err_register_polled_device:
