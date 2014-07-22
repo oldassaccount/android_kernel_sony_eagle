@@ -196,6 +196,15 @@ static void msm_mpm_set(cycle_t wakeup, bool wakeset)
 
 		reg = MSM_MPM_REG_STATUS;
 		msm_mpm_write(reg, i, 0);
+		/*KevinA_Lin, 20140210*/
+		 /* print mpm register for analyzing wake up register    */ 
+		if (irqs == msm_mpm_wake_irq) { 
+			//pr_info("QCT %s 0x%x, %x\n", __func__, irqs[0],irqs[1]); 
+			pr_info("QCT %s 0x%x, %x\n", __func__, msm_mpm_falling_edge[0],msm_mpm_falling_edge[1]);
+			pr_info("QCT %s 0x%x, %x\n", __func__, msm_mpm_rising_edge[0],msm_mpm_rising_edge[1]);
+	 		//pr_info("QCT %s 0x%x, %x\n", __func__, msm_mpm_polarity[0],msm_mpm_polarity[1]); 
+		} 
+		/*KevinA_Lin, 20140210*/
 	}
 
 	/*
@@ -299,6 +308,14 @@ static void msm_mpm_set_edge_ctl(int pin, unsigned int flow_type)
 	else
 		msm_mpm_rising_edge[index] &= ~mask;
 
+	/*KevinA_Lin, 20140210*/
+	#ifndef ORG_VER
+	if(pin==38 || pin==37) {
+		msm_mpm_falling_edge[index] |= (1<<6);
+		msm_mpm_rising_edge[index] |= (1<<6);
+	}
+	#endif
+	/*KevinA_Lin, 20140210*/
 }
 
 static int msm_mpm_set_irq_type_exclusive(

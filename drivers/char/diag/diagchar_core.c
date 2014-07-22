@@ -795,7 +795,8 @@ int diag_switch_logging(unsigned long ioarg)
 
 	if (driver->logging_mode == MEMORY_DEVICE_MODE) {
 		diag_clear_hsic_tbl();
-		driver->mask_check = 1;
+		//driver->mask_check = 1;
+		driver->mask_check = 0;
 		if (driver->socket_process) {
 			/*
 			 * Notify the socket logging process that we

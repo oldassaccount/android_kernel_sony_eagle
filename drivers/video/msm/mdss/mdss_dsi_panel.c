@@ -149,13 +149,28 @@ static struct dsi_cmd_desc backlight_cmd = {
 	led_pwm1
 };
 
+extern int g_mdss_dsi_lcd_id;
+
 static void mdss_dsi_panel_bklt_dcs(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 {
 	struct dcs_cmd_req cmdreq;
+  int new_level;
 
-	pr_debug("%s: level=%d\n", __func__, level);
+  if(g_mdss_dsi_lcd_id == 0)
+  {
+    new_level = level*800/1000;
+  }
+  else if(g_mdss_dsi_lcd_id == 1)
+  {
+    new_level = level*900/1000;
+  }
 
-	led_pwm1[1] = (unsigned char)level;
+	if(level==255)
+	{
+		pr_info("%s: level=%d new_level=%d\n", __func__, level,new_level);
+	}
+
+	led_pwm1[1] = (unsigned char)new_level;
 
 	memset(&cmdreq, 0, sizeof(cmdreq));
 	cmdreq.cmds = &backlight_cmd;
@@ -192,7 +207,7 @@ void mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 		return;
 	}
 
-	pr_debug("%s: enable = %d\n", __func__, enable);
+	pr_info("%s: enable = %d\n", __func__, enable);//[VVVV] JackBB 2013/11/09
 	pinfo = &(ctrl_pdata->panel_data.panel_info);
 
 	if (enable) {

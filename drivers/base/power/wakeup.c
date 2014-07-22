@@ -24,6 +24,14 @@
  */
 bool events_check_enabled __read_mostly;
 
+/* 20131001 */
+#ifdef CONFIG_CCI_PM_ACTIVE_WAKELOCK_LOG_PERIOD
+static struct timespec last_dump_timestamp;
+static unsigned int cci_pm_active_wakelock_log_period = CONFIG_CCI_PM_ACTIVE_WAKELOCK_LOG_PERIOD;
+static unsigned int wakeup_debug_enable = 0;
+#endif 
+/* 20131001 */
+
 /*
  * Combined counters of registered wakeup events and wakeup events in progress.
  * They need to be modified together atomically, so it's better to use one
@@ -405,6 +413,78 @@ static void wakeup_source_report_event(struct wakeup_source *ws)
 		wakeup_source_activate(ws);
 }
 
+/* 20131001 */
+#ifdef CONFIG_CCI_PM_ACTIVE_WAKELOCK_LOG_PERIOD
+static int wakeup_source_get_print_period(void *data, u64 * val)
+{
+	int ret;
+
+	ret = cci_pm_active_wakelock_log_period;
+	*val = ret;
+	return 0;
+}
+
+static int wakeup_source_set_print_period(void *data, u64 val)
+{
+	cci_pm_active_wakelock_log_period = (unsigned int)val;
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(print_fops, wakeup_source_get_print_period, wakeup_source_set_print_period, "%llu\n");
+
+static int wakeup_source_get_debug(void *data, u64 * val)
+{
+	int ret;
+
+	ret = wakeup_debug_enable;
+	*val = ret;
+	return 0;
+}
+
+static int wakeup_debug_set_debug(void *data, u64 val)
+{
+	wakeup_debug_enable = (unsigned int)val;
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(enable_fops, wakeup_source_get_debug, wakeup_debug_set_debug, "%llu\n");
+
+static void print_active_wakelock(void)
+{
+	struct wakeup_source *ws;
+	ktime_t now = ktime_get();
+	ktime_t current_prevent_time;
+	bool abort = false;
+	unsigned int wakeup_left_time;
+	
+	if (!wakeup_debug_enable)
+		return;
+
+	if (current_kernel_time().tv_sec - last_dump_timestamp.tv_sec >= cci_pm_active_wakelock_log_period)
+	{
+		last_dump_timestamp = current_kernel_time();
+	} else {
+		abort = true;
+	}
+
+	if (abort)
+	{
+		return;
+	}	
+	
+	list_for_each_entry_rcu(ws, &wakeup_sources, entry)
+		if (ws->active) {
+			current_prevent_time =  ktime_sub(now, ws->start_prevent_time);
+			if(ws->timer_expires) {
+				wakeup_left_time = jiffies_to_msecs(ws->timer_expires - jiffies);
+				pr_info("active wake lock %s , prevent time %lld, time left %d\n", 
+					ws->name, ktime_to_ms(current_prevent_time), wakeup_left_time);
+			} else {
+				pr_info("active wake lock %s , prevent time:%lld\n", ws->name, ktime_to_ms(current_prevent_time));
+			}
+		}
+}	
+#endif
+/* 20131001 */
+
 /**
  * __pm_stay_awake - Notify the PM core of a wakeup event.
  * @ws: Wakeup source object associated with the source of the event.
@@ -423,7 +503,11 @@ void __pm_stay_awake(struct wakeup_source *ws)
 	wakeup_source_report_event(ws);
 	del_timer(&ws->timer);
 	ws->timer_expires = 0;
-
+/* 20131001 */
+#ifdef CONFIG_CCI_PM_ACTIVE_WAKELOCK_LOG_PERIOD
+	print_active_wakelock();//wakelock check
+#endif
+/* 20131001 */
 	spin_unlock_irqrestore(&ws->lock, flags);
 }
 EXPORT_SYMBOL_GPL(__pm_stay_awake);
@@ -538,6 +622,11 @@ void __pm_relax(struct wakeup_source *ws)
 	spin_lock_irqsave(&ws->lock, flags);
 	if (ws->active)
 		wakeup_source_deactivate(ws);
+/* 20131001 */
+#ifdef CONFIG_CCI_PM_ACTIVE_WAKELOCK_LOG_PERIOD
+	print_active_wakelock();//wakelock check
+#endif
+/* 20131001 */
 	spin_unlock_irqrestore(&ws->lock, flags);
 }
 EXPORT_SYMBOL_GPL(__pm_relax);
@@ -622,6 +711,11 @@ void __pm_wakeup_event(struct wakeup_source *ws, unsigned int msec)
 		mod_timer(&ws->timer, expires);
 		ws->timer_expires = expires;
 	}
+/* 20131001 */
+#ifdef CONFIG_CCI_PM_ACTIVE_WAKELOCK_LOG_PERIOD
+	print_active_wakelock();//wakelock check
+#endif
+/* 20131001 */
 
  unlock:
 	spin_unlock_irqrestore(&ws->lock, flags);
@@ -850,6 +944,12 @@ static const struct file_operations wakeup_sources_stats_fops = {
 
 static int __init wakeup_sources_debugfs_init(void)
 {
+/* 20131001 */
+#ifdef CONFIG_CCI_PM_ACTIVE_WAKELOCK_LOG_PERIOD	
+	debugfs_create_file("wakeup_debug", 0644, NULL, NULL, &enable_fops);
+	debugfs_create_file("wakeup_print", 0644, NULL, NULL, &print_fops);
+#endif
+/* 20131001 */
 	wakeup_sources_stats_dentry = debugfs_create_file("wakeup_sources",
 			S_IRUGO, NULL, NULL, &wakeup_sources_stats_fops);
 	return 0;

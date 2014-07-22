@@ -2,6 +2,7 @@
  *  linux/kernel/panic.c
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
+ * Copyright (C) 2012 Sony Mobile Communications AB.
  */
 
 /*
@@ -24,7 +25,21 @@
 #include <linux/nmi.h>
 #include <linux/dmi.h>
 #include <linux/coresight.h>
-
+#include <linux/io.h>
+#include <mach/subsystem_restart.h>
+#include <mach/msm_iomap.h>
+#ifdef CONFIG_CCI_KLOG
+extern long* powerpt;
+extern long* unknowflag;
+extern long* backupcrashflag;
+#endif
+//[VY5x] ==> CCI KLog, added by Jimmy@CCI
+#ifdef CONFIG_CCI_KLOG
+#include <linux/mm.h>
+#include <linux/irq.h>
+#include <linux/cciklog.h>
+#endif // #ifdef CONFIG_CCI_KLOG
+//[VY5x] <== CCI KLog, added by Jimmy@CCI
 #define PANIC_TIMER_STEP 100
 #define PANIC_BLINK_SPD 18
 
@@ -36,7 +51,16 @@ static unsigned long tainted_mask;
 static int pause_on_oops;
 static int pause_on_oops_flag;
 static DEFINE_SPINLOCK(pause_on_oops_lock);
-
+extern void set_warmboot(void);
+extern void *restart_reason;
+#define ABNORAML_NONE		0x0
+#define ABNORAML_REBOOT		0x1
+#define ABNORAML_CRASH		0x2
+#define ABNORAML_POWEROFF	0x3
+extern long abnormalflag;
+#define CONFIG_WARMBOOT_CRASH       0xC0DEDEAD
+#define CONFIG_WARMBOOT_NONE        0x00000000
+#define CONFIG_WARMBOOT_NORMAL      0x77665501
 #ifndef CONFIG_PANIC_TIMEOUT
 #define CONFIG_PANIC_TIMEOUT 0
 #endif
@@ -81,7 +105,25 @@ void panic(const char *fmt, ...)
 	long i, i_next = 0;
 	int state = 0;
 
+	if(abnormalflag == ABNORAML_CRASH)
+		goto end;
+
+#ifdef CONFIG_CCI_KLOG		
+	*unknowflag = 0;
+	*backupcrashflag = 0;
+#endif	
+	set_warmboot();
+#ifdef CCI_KLOG_ALLOW_FORCE_PANIC			
+	__raw_writel(CONFIG_WARMBOOT_CRASH, restart_reason);
+#else
+	__raw_writel(CONFIG_WARMBOOT_NORMAL, restart_reason);
+	*backupcrashflag = CONFIG_WARMBOOT_CRASH;
+#endif	
+	abnormalflag = ABNORAML_CRASH;
+	mb();
+	
 	coresight_abort();
+
 	/*
 	 * Disable local interrupts. This will prevent panic_smp_self_stop
 	 * from deadlocking the first cpu that invokes the panic, since
@@ -103,12 +145,48 @@ void panic(const char *fmt, ...)
 	if (!spin_trylock(&panic_lock))
 		panic_smp_self_stop();
 
+//[VY5x] ==> CCI KLog, modified by Jimmy@CCI
+#ifndef CONFIG_CCI_KLOG
 	console_verbose();
+#endif // #ifndef CONFIG_CCI_KLOG
+//[VY5x] <== CCI KLog, modified by Jimmy@CCI
 	bust_spinlocks(1);
 	va_start(args, fmt);
 	vsnprintf(buf, sizeof(buf), fmt, args);
 	va_end(args);
+//[VY5x] ==> CCI KLog, added by Jimmy@CCI
+#ifdef CCI_KLOG_CRASH_SIZE
+#if CCI_KLOG_CRASH_SIZE
+	set_fault_state(0x1, 0, buf);
+#endif // #if CCI_KLOG_CRASH_SIZE
+#endif // #ifdef CCI_KLOG_CRASH_SIZE
+//[VY5x] <== CCI KLog, added by Jimmy@CCI
 	printk(KERN_EMERG "Kernel panic - not syncing: %s\n",buf);
+//[VY5x] ==> CCI KLog, added by Jimmy@CCI
+#ifdef CONFIG_CCI_KLOG
+	cklc_save_magic(KLOG_MAGIC_AARM_PANIC, KLOG_STATE_AARM_PANIC);
+	local_irq_disable();
+	if(!oops_in_progress)//not called from die
+	{
+		struct pt_regs *regs = get_irq_regs();//only available when in intrrupt
+//modules info
+		print_modules();
+//register info
+		if(regs)
+		{
+			show_regs(regs);
+		}
+//memory info
+		show_mem(SHOW_MEM_FILTER_NODES);
+#ifndef CONFIG_DEBUG_BUGVERBOSE
+//call-stack
+		dump_stack();
+#endif // #ifndef CONFIG_DEBUG_BUGVERBOSE
+//call-stacks of all threads/processes, it will output huge amount of logs
+//		show_state();
+	}
+#endif // #ifdef CONFIG_CCI_KLOG
+//[VY5x] <== CCI KLog, added by Jimmy@CCI
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 	/*
 	 * Avoid nested stack-dumping if a panic occurs during oops processing
@@ -162,7 +240,11 @@ void panic(const char *fmt, ...)
 		 * shutting down.  But if there is a chance of
 		 * rebooting the system it will be rebooted.
 		 */
+//[VY5x] ==> CCI KLog, modified by Jimmy@CCI
+#ifndef CONFIG_CCI_KLOG
 		emergency_restart();
+#endif // #ifdef CONFIG_CCI_KLOG
+//[VY5x] <== CCI KLog, modified by Jimmy@CCI
 	}
 #ifdef __sparc__
 	{
@@ -180,7 +262,19 @@ void panic(const char *fmt, ...)
 		disabled_wait(caller);
 	}
 #endif
+//[VY5x] ==> CCI KLog, modified by Jimmy@CCI
+#ifdef CONFIG_CCI_KLOG
+#ifdef CCI_KLOG_CRASH_SIZE
+#if CCI_KLOG_CRASH_SIZE
+	set_fault_state(-1, -1, "");//crash info finished, record important log only
+#endif // #if CCI_KLOG_CRASH_SIZE
+#endif // #ifdef CCI_KLOG_CRASH_SIZE
+	kernel_restart(NULL);
+#else // #ifdef CONFIG_CCI_KLOG
 	local_irq_enable();
+#endif // #ifdef CONFIG_CCI_KLOG
+//[VY5x] <== CCI KLog, modified by Jimmy@CCI
+end:
 	for (i = 0; ; i += PANIC_TIMER_STEP) {
 		touch_softlockup_watchdog();
 		if (i >= i_next) {
@@ -390,12 +484,31 @@ late_initcall(init_oops_id);
 
 void print_oops_end_marker(void)
 {
+//[VY5x] ==> CCI KLog, added by Jimmy@CCI
+#ifdef CCI_KLOG_CRASH_SIZE
+#if CCI_KLOG_CRASH_SIZE
+	int fault_state = get_fault_state();
+#endif // #if CCI_KLOG_CRASH_SIZE
+#endif // #ifdef CCI_KLOG_CRASH_SIZE
+//[VY5x] <== CCI KLog, added by Jimmy@CCI
+
 	init_oops_id();
 
 	if (mach_panic_string)
 		printk(KERN_WARNING "Board Information: %s\n",
 		       mach_panic_string);
 
+//[VY5x] ==> CCI KLog, added by Jimmy@CCI
+#ifdef CCI_KLOG_CRASH_SIZE
+#if CCI_KLOG_CRASH_SIZE
+	if(fault_state > 0 && (fault_state & 0x10) == 0)
+	{
+		printk(KERN_ALERT "---[ end trace %016llx ]---\n", (unsigned long long)oops_id);
+	}
+	else
+#endif // #if CCI_KLOG_CRASH_SIZE
+#endif // #ifdef CCI_KLOG_CRASH_SIZE
+//[VY5x] <== CCI KLog, added by Jimmy@CCI
 	printk(KERN_WARNING "---[ end trace %016llx ]---\n",
 		(unsigned long long)oops_id);
 }

@@ -23,6 +23,10 @@
 #include <linux/input.h>
 #include <linux/log2.h>
 #include <linux/qpnp/power-on.h>
+#include <linux/wakelock.h>/* KevinA_Lin, 20130906 */
+/* 20130925 */
+#include <linux/gpio.h>
+/* 20130925 */
 
 /* Common PNP defines */
 #define QPNP_PON_REVISION2(base)		(base + 0x01)
@@ -87,6 +91,13 @@
 
 #define QPNP_KEY_STATUS_DELAY			msecs_to_jiffies(250)
 #define QPNP_PON_REV_B				0x01
+
+/* 20130925 */
+#ifdef CCI_FORCE_RAMDUMP
+#define GPIO_VOLUME_DOWN   		106
+#define GPIO_CAM_CAPTURE   		107
+#endif
+/* 20130925 */
 
 enum pon_type {
 	PON_KPDPWR,
@@ -315,6 +326,99 @@ qpnp_get_cfg(struct qpnp_pon *pon, u32 pon_type)
 	return NULL;
 }
 
+/* 20130925 */
+#ifdef CCI_FORCE_RAMDUMP
+static int is_gpio_key_pressed(int gpio) {
+
+	int status = 0;
+
+	status = gpio_get_value(gpio); 
+	if (!status) {
+		pr_info("%s: GPIO(%d) is pressed\n", __func__, gpio);			
+	} else {
+		pr_info("%s: GPIO(%d) is released\n", __func__, gpio);
+	}
+	return !status;
+}
+
+static void qpnp_checkkey_to_trigger_ramdump(u8 pon_rt_val) 
+{	
+	int resin_pressed=0, volume_down_pressed=0, camera_capture_pressed=0;
+
+	if (!pon_rt_val) {
+		resin_pressed = 0;
+		pr_info("%s: resin is released\n", __func__);
+	} else {
+		resin_pressed = 1;
+		pr_info("%s: resin is pressed\n", __func__);
+
+		volume_down_pressed = is_gpio_key_pressed(GPIO_VOLUME_DOWN);
+		camera_capture_pressed = is_gpio_key_pressed(GPIO_CAM_CAPTURE);
+		
+		if (resin_pressed && volume_down_pressed && camera_capture_pressed) {
+		    	pr_info("%s: Using combination key (up+down+capture) to force panic!!!\n", __func__);
+			panic("kernel panic cause by resin+volume down+camera capture!!!");
+		}
+	}
+}
+#endif
+/* 20130925 */
+
+/* KevinA_Lin, 20131226 */
+#ifdef CCI_FORCE_RAMDUMP
+#define CCI_FORCE_RAMDUMP_TIMEOUT 5000
+#define CCI_FORCE_RAMDUMP_CHECK_NUM 6
+static struct timer_list hwkey_timer;
+struct qpnp_pon *pon_ptr;
+static int hwkey_timer_check;
+static struct wake_lock force_ramdump_wake_lock;
+static void
+qpnp_pon_force_ramdump_timer(unsigned long unused)
+{
+	int rc;
+	u8 pon_rt_sts = 0;
+	
+	hwkey_timer_check ++;
+	pr_info("%s():hwkey_timer_check %d\n", __func__, hwkey_timer_check);
+		
+	rc = spmi_ext_register_readl(pon_ptr->spmi->ctrl, pon_ptr->spmi->sid,
+			QPNP_PON_RT_STS(pon_ptr->base), &pon_rt_sts, 1);
+		
+	if (!pon_rt_sts & QPNP_PON_KPDPWR_N_SET) {
+			del_timer(&hwkey_timer);
+			hwkey_timer_check = 0;
+			pr_info("%s():hwkey_timer_check %d\n", __func__, hwkey_timer_check);
+	}
+
+	if(hwkey_timer_check == CCI_FORCE_RAMDUMP_CHECK_NUM) {
+		pr_info("%s: long press pwkey to  force panic!!!\n",__func__);
+		panic("kernel panic cause by long press pwkey!!!");
+	}
+	mod_timer(&hwkey_timer, jiffies + msecs_to_jiffies(CCI_FORCE_RAMDUMP_TIMEOUT));
+}
+static void
+qpnp_pon_force_ramdump_timer_start(void)
+{
+	wake_lock(&force_ramdump_wake_lock);
+	mod_timer(&hwkey_timer, jiffies + msecs_to_jiffies(CCI_FORCE_RAMDUMP_TIMEOUT)); // delay 30 seconds
+}
+static void
+qpnp_pon_force_ramdump(u8 pon_rt_val)
+{
+	 
+	if (!pon_rt_val) {
+		del_timer(&hwkey_timer);
+		hwkey_timer_check = 0; 
+		pr_info("%s():hwkey_timer_check %d\n", __func__,  hwkey_timer_check);
+		if(wake_lock_active(&force_ramdump_wake_lock))
+			wake_unlock(&force_ramdump_wake_lock);
+	} else {
+		qpnp_pon_force_ramdump_timer_start();
+	}
+}
+#endif
+/* KevinA_Lin, 20131226 */
+
 static int
 qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 {
@@ -357,6 +461,20 @@ qpnp_pon_input_dispatch(struct qpnp_pon *pon, u32 pon_type)
 
 	input_report_key(pon->pon_input, cfg->key_code,
 					(pon_rt_sts & pon_rt_bit));
+	/* KevinA_Lin, 20131226 */
+	#ifdef CCI_FORCE_RAMDUMP
+	if (cfg->pon_type == PON_KPDPWR)
+		qpnp_pon_force_ramdump(pon_rt_sts & pon_rt_bit);/* KevinA_Lin, 20130906 */
+	#endif
+	/* KevinA_Lin, 20131226 */
+
+	/* 20130925 */
+	#ifdef CCI_FORCE_RAMDUMP
+	if (cfg->pon_type == PON_RESIN)
+		qpnp_checkkey_to_trigger_ramdump(pon_rt_sts & pon_rt_bit);
+	#endif
+	/* 20130925 */
+	
 	input_sync(pon->pon_input);
 
 	return 0;
@@ -1091,6 +1209,16 @@ static int __devinit qpnp_pon_probe(struct spmi_device *spmi)
 	dev_set_drvdata(&spmi->dev, pon);
 
 	INIT_DELAYED_WORK(&pon->bark_work, bark_work_func);
+
+	/* KevinA_Lin, 20131226 */
+	#ifdef CCI_FORCE_RAMDUMP
+	wake_lock_init(&force_ramdump_wake_lock, WAKE_LOCK_SUSPEND,
+			"qpnp-force-ramedump");
+	setup_timer(&hwkey_timer,
+			qpnp_pon_force_ramdump_timer, (unsigned long)0);
+	pon_ptr = pon;
+	#endif
+	/* KevinA_Lin, 20131226 */
 
 	/* register the PON configurations */
 	rc = qpnp_pon_config_init(pon);

@@ -49,6 +49,13 @@
 #ifdef CONFIG_VFP
 #include <asm/vfp.h>
 #endif
+//[VY5x] ==> CCI KLog, added by Jimmy@CCI
+#undef CONFIG_CCI_KLOG
+#ifdef CONFIG_CCI_KLOG
+#include <linux/cciklog.h>
+#endif // #ifdef CONFIG_CCI_KLOG
+//[VY5x] <== CCI KLog, added by Jimmy@CCI
+
 #include "acpuclock.h"
 #include "clock.h"
 #include "avs.h"
@@ -134,6 +141,16 @@ static bool msm_pm_retention_calls_tz;
 static bool msm_no_ramp_down_pc;
 static struct msm_pm_sleep_status_data *msm_pm_slp_sts;
 static bool msm_pm_pc_reset_timer;
+//[VY5x] ==> CCI KLog, added by Jimmy@CCI
+#ifdef CONFIG_CCI_KLOG
+extern unsigned int suspend_time;
+extern struct timespec suspend_timestamp;
+extern struct timespec resume_timestamp;
+extern int suspend_resume_state;
+extern struct timespec klog_get_kernel_clock_timestamp(void);
+extern void record_suspend_resume_time(int state, unsigned int time);
+#endif // #ifdef CONFIG_CCI_KLOG
+//[VY5x] <== CCI KLog, added by Jimmy@CCI
 
 static int msm_pm_get_pc_mode(struct device_node *node,
 		const char *key, uint32_t *pc_mode_val)
@@ -1064,6 +1081,11 @@ static int msm_pm_enter(suspend_state_t state)
 	bool allow[MSM_PM_SLEEP_MODE_NR];
 	int i;
 	struct msm_pm_time_params time_param;
+//[VY5x] ==> CCI KLog, added by Jimmy@CCI
+#ifdef CONFIG_CCI_KLOG
+	struct timespec current_timestamp;
+#endif // #ifdef CONFIG_CCI_KLOG
+//[VY5x] <== CCI KLog, added by Jimmy@CCI
 
 	time_param.latency_us = -1;
 	time_param.sleep_us = -1;
@@ -1107,6 +1129,26 @@ static int msm_pm_enter(suspend_state_t state)
 			rs_limits = pm_sleep_ops.lowest_limits(false,
 		MSM_PM_SLEEP_MODE_POWER_COLLAPSE, &time_param, &power);
 
+//[VY5x] ==> CCI KLog, added by Jimmy@CCI
+#ifdef CONFIG_CCI_KLOG
+		if(suspend_resume_state == 1)
+		{
+			current_timestamp = klog_get_kernel_clock_timestamp();
+#ifdef CCI_KLOG_DETAIL_LOG
+			kprintk("suspend_resume_state(%d):suspend_timestamp=%u.%u\n", suspend_resume_state, (unsigned int)current_timestamp.tv_sec, (unsigned int)current_timestamp.tv_nsec);
+#endif // #ifdef CCI_KLOG_DETAIL_LOG
+			suspend_timestamp.tv_sec = current_timestamp.tv_sec - suspend_timestamp.tv_sec;
+			suspend_timestamp.tv_nsec = current_timestamp.tv_nsec - suspend_timestamp.tv_nsec;
+			suspend_time = (unsigned int)(suspend_timestamp.tv_sec * 1000 + suspend_timestamp.tv_nsec / 1000000);//ms
+			record_suspend_resume_time(suspend_resume_state, suspend_time);
+#ifdef CCI_KLOG_DETAIL_LOG
+			kprintk("suspend_resume_state(%d):suspend_time=%u\n", suspend_resume_state, suspend_time);
+#endif // #ifdef CCI_KLOG_DETAIL_LOG
+		}
+		suspend_resume_state = 2;
+#endif // #ifdef CONFIG_CCI_KLOG
+//[VY5x] <== CCI KLog, added by Jimmy@CCI
+
 		if (rs_limits) {
 			if (pm_sleep_ops.enter_sleep)
 				ret = pm_sleep_ops.enter_sleep(
@@ -1139,6 +1181,18 @@ static int msm_pm_enter(suspend_state_t state)
 	}
 
 enter_exit:
+//[VY5x] ==> CCI KLog, added by Jimmy@CCI
+#ifdef CONFIG_CCI_KLOG
+	if(suspend_resume_state == 2)
+	{
+		resume_timestamp = klog_get_kernel_clock_timestamp();
+#ifdef CCI_KLOG_DETAIL_LOG
+		kprintk("suspend_resume_state(%d):resume_timestamp=%u.%u\n", suspend_resume_state, (unsigned int)resume_timestamp.tv_sec, (unsigned int)resume_timestamp.tv_nsec);
+#endif // #ifdef CCI_KLOG_DETAIL_LOG
+	}
+	suspend_resume_state = 3;
+#endif // #ifdef CONFIG_CCI_KLOG
+//[VY5x] <== CCI KLog, added by Jimmy@CCI
 	if (MSM_PM_DEBUG_SUSPEND & msm_pm_debug_mask)
 		pr_info("%s: return\n", __func__);
 

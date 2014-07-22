@@ -61,7 +61,11 @@ static struct ion_heap_desc ion_heap_meta[] = {
 	},
 	{
 		.id	= ION_CP_MM_HEAP_ID,
+#ifdef CONFIG_CMA
 		.type	= ION_HEAP_TYPE_SECURE_DMA,
+#else
+		.type	= ION_HEAP_TYPE_CP,
+#endif
 		.name	= ION_MM_HEAP_NAME,
 		.permission_type = IPT_TYPE_MM_CARVEOUT,
 	},
@@ -88,7 +92,11 @@ static struct ion_heap_desc ion_heap_meta[] = {
 	},
 	{
 		.id	= ION_QSECOM_HEAP_ID,
+#ifdef CONFIG_CMA
 		.type	= ION_HEAP_TYPE_DMA,
+#else
+		.type	= ION_HEAP_TYPE_CARVEOUT,
+#endif
 		.name	= ION_QSECOM_HEAP_NAME,
 	},
 	{
@@ -118,7 +126,11 @@ static struct ion_heap_desc ion_heap_meta[] = {
 	},
 	{
 		.id	= ION_ADSP_HEAP_ID,
+#ifdef CONFIG_CMA
 		.type	= ION_HEAP_TYPE_DMA,
+#else
+		.type	= ION_HEAP_TYPE_CARVEOUT,
+#endif
 		.name	= ION_ADSP_HEAP_NAME,
 	}
 };

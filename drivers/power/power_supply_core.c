@@ -196,8 +196,9 @@ static void power_supply_changed_work(struct work_struct *work)
 
 		class_for_each_device(power_supply_class, NULL, psy,
 				      __power_supply_changed_work);
-
+#if 0//S:LO for solving LED indication
 		power_supply_update_leds(psy);
+#endif//E:LO
 
 		kobject_uevent(&psy->dev->kobj, KOBJ_CHANGE);
 		spin_lock_irqsave(&psy->changed_lock, flags);

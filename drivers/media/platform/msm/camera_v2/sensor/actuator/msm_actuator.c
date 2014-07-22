@@ -26,6 +26,7 @@ DEFINE_MSM_MUTEX(msm_actuator_mutex);
 #else
 #define CDBG(fmt, args...) pr_debug(fmt, ##args)
 #endif
+#define CCI_camera
 
 static struct msm_actuator msm_vcm_actuator_table;
 static struct msm_actuator msm_piezo_actuator_table;
@@ -109,7 +110,13 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 					i2c_byte2 = (value & 0xFF00) >> 8;
 				}
 			} else {
-				i2c_byte1 = (value & 0xFF00) >> 8;
+/**/
+				#ifdef CCI_camera
+					i2c_byte1 = ((value & 0x0300) >> 8) | 0xF4; // [1111] => PS=1 EN=1 Mode =110 ; [01xx] Point Mode =110(con.)  Mode =1 
+				#else
+					i2c_byte1 = (value & 0xFF00) >> 8;
+				#endif// ORG
+/**/
 				i2c_byte2 = value & 0xFF;
 			}
 		} else {

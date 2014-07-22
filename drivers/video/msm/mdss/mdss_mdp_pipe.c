@@ -25,6 +25,7 @@
 #define SMP_MB_ENTRY_SIZE	16
 #define MAX_BPP 4
 
+
 static DEFINE_MUTEX(mdss_mdp_sspp_lock);
 static DEFINE_MUTEX(mdss_mdp_smp_lock);
 
@@ -603,6 +604,11 @@ int mdss_mdp_pipe_destroy(struct mdss_mdp_pipe *pipe)
 
 }
 
+//S [VVVV] JackBB 2013/8/9
+extern int check_mdss_mdp_mfd_index(struct msm_fb_data_type *mfd);
+extern int g_mdss_dsi_lcd_id;
+//E [VVVV] JackBB 2013/8/9
+
 /**
  * mdss_mdp_pipe_handoff() - Handoff staged pipes during bootup
  * @pipe: pointer to the pipe to be handed-off
@@ -737,6 +743,25 @@ static int mdss_mdp_image_setup(struct mdss_mdp_pipe *pipe,
 	dst_xy = (dst.y << 16) | dst.x;
 
 	img_size = (height << 16) | width;
+	src_size = (pipe->src.h << 16) | pipe->src.w;
+	src_xy = (pipe->src.y << 16) | pipe->src.x;
+	dst_size = (pipe->dst.h << 16) | pipe->dst.w;
+
+//S JackBB 7/29 Screen 180
+#ifdef ORG_VER
+	dst_xy = (pipe->dst.y << 16) | pipe->dst.x;
+#else
+  if(pipe->mfd && check_mdss_mdp_mfd_index(pipe->mfd) == 0 && g_mdss_dsi_lcd_id == 0)
+  {
+    dst_xy = (((960- pipe->dst.y - pipe->dst.h) << 16) |
+    (540- pipe->dst.x - pipe->dst.w));
+  }
+  else
+  {
+    dst_xy = (pipe->dst.y << 16) | pipe->dst.x;
+  }
+#endif
+//E JackBB 7/29 Screen 180
 
 	ystride0 =  (pipe->src_planes.ystride[0]) |
 			(pipe->src_planes.ystride[1] << 16);
@@ -778,6 +803,25 @@ static int mdss_mdp_format_setup(struct mdss_mdp_pipe *pipe)
 		opmode |= MDSS_MDP_OP_FLIP_LR;
 	if (pipe->flags & MDP_FLIP_UD)
 		opmode |= MDSS_MDP_OP_FLIP_UD;
+
+//S JackBB 7/29 Screen 180
+#ifdef ORG_VER
+#else
+
+  if(pipe->mfd && check_mdss_mdp_mfd_index(pipe->mfd) == 0 && g_mdss_dsi_lcd_id == 0)
+  {
+    if(opmode & MDSS_MDP_OP_FLIP_LR)
+      opmode &= ~MDSS_MDP_OP_FLIP_LR; 
+    else
+      opmode |= MDSS_MDP_OP_FLIP_LR; 
+
+    if(opmode & MDSS_MDP_OP_FLIP_UD)
+      opmode &= ~MDSS_MDP_OP_FLIP_UD; 
+    else
+      opmode |= MDSS_MDP_OP_FLIP_UD; 
+  }
+#endif
+//E JackBB 7/29 Screen 180
 
 	pr_debug("pnum=%d format=%d opmode=%x\n", pipe->num, fmt->format,
 			opmode);

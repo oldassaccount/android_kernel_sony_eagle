@@ -518,8 +518,19 @@ static int tapan_pa_gain_get(struct snd_kcontrol *kcontrol,
 
 	if (ear_pa_gain == 0x00) {
 		ucontrol->value.integer.value[0] = 0;
+	#if 0  // BAM_S C 130811 B161
 	} else if (ear_pa_gain == 0x04) {
 		ucontrol->value.integer.value[0] = 1;
+	#else
+	} else if (ear_pa_gain == 0x01) {
+		ucontrol->value.integer.value[0] = 1;
+	} else if (ear_pa_gain == 0x02) {
+		ucontrol->value.integer.value[0] = 2;
+	} else if (ear_pa_gain == 0x03) {
+		ucontrol->value.integer.value[0] = 3;
+	} else if (ear_pa_gain == 0x04) {
+		ucontrol->value.integer.value[0] = 4;
+	#endif  // BAM_E C 130811 B161
 	} else  {
 		pr_err("%s: ERROR: Unsupported Ear Gain = 0x%x\n",
 				__func__, ear_pa_gain);
@@ -544,9 +555,24 @@ static int tapan_pa_gain_put(struct snd_kcontrol *kcontrol,
 	case 0:
 		ear_pa_gain = 0x00;
 		break;
+	#if 0  // BAM_S C 130811 B161
 	case 1:
 		ear_pa_gain = 0x80;
 		break;
+	#else
+	case 1:
+		ear_pa_gain = 0x20;
+		break;
+	case 2:
+		ear_pa_gain = 0x40;
+		break;
+	case 3:
+		ear_pa_gain = 0x60;
+		break;
+	case 4:
+		ear_pa_gain = 0x80;
+		break;
+	#endif  // BAM_E C 130811 B161
 	default:
 		return -EINVAL;
 	}
@@ -1013,10 +1039,17 @@ static int tapan_config_compander(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+#if 0  // BAM_S C 130811 B161
 static const char * const tapan_ear_pa_gain_text[] = {"POS_6_DB", "POS_2_DB"};
 static const struct soc_enum tapan_ear_pa_gain_enum[] = {
 		SOC_ENUM_SINGLE_EXT(2, tapan_ear_pa_gain_text),
 };
+#else
+static const char * const tapan_ear_pa_gain_text[] = {"POS_6_DB", "POS_4P5_DB", "POS_3_DB", "POS_1P5_DB", "POS_0_DB",};
+static const struct soc_enum tapan_ear_pa_gain_enum[] = {
+		SOC_ENUM_SINGLE_EXT(5, tapan_ear_pa_gain_text),
+};
+#endif  // BAM_E C 130811 B161
 
 static const char *const tapan_anc_func_text[] = {"OFF", "ON"};
 static const struct soc_enum tapan_anc_func_enum =
@@ -1085,6 +1118,7 @@ static const struct snd_kcontrol_new tapan_common_snd_controls[] = {
 	SOC_ENUM_EXT("EAR PA Gain", tapan_ear_pa_gain_enum[0],
 		tapan_pa_gain_get, tapan_pa_gain_put),
 
+#if 0  // BAM_S C 130811 B161
 	SOC_SINGLE_TLV("HPHL Volume", TAPAN_A_RX_HPH_L_GAIN, 0, 14, 1,
 		line_gain),
 	SOC_SINGLE_TLV("HPHR Volume", TAPAN_A_RX_HPH_R_GAIN, 0, 14, 1,
@@ -1097,6 +1131,20 @@ static const struct snd_kcontrol_new tapan_common_snd_controls[] = {
 
 	SOC_SINGLE_TLV("SPK DRV Volume", TAPAN_A_SPKR_DRV_GAIN, 3, 7, 1,
 		line_gain),
+#else
+		SOC_SINGLE_TLV("HPHL Volume", TAPAN_A_RX_HPH_L_GAIN, 0, 20, 1,
+			line_gain),
+		SOC_SINGLE_TLV("HPHR Volume", TAPAN_A_RX_HPH_R_GAIN, 0, 20, 1,
+			line_gain),
+		
+		SOC_SINGLE_TLV("LINEOUT1 Volume", TAPAN_A_RX_LINE_1_GAIN, 0, 20, 1,
+			line_gain),
+		SOC_SINGLE_TLV("LINEOUT2 Volume", TAPAN_A_RX_LINE_2_GAIN, 0, 20, 1,
+			line_gain),
+		
+		SOC_SINGLE_TLV("SPK DRV Volume", TAPAN_A_SPKR_DRV_GAIN, 3, 8, 1,
+			line_gain),
+#endif  // BAM_E C 130811 B161
 
 	SOC_SINGLE_TLV("ADC1 Volume", TAPAN_A_TX_1_EN, 2, 19, 0, analog_gain),
 	SOC_SINGLE_TLV("ADC2 Volume", TAPAN_A_TX_2_EN, 2, 19, 0, analog_gain),
@@ -2864,6 +2912,9 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"LINEOUT2 DAC", NULL, "RDAC5 MUX"},
 
 	{"SPK PA", NULL, "SPK DAC"},
+	// BAM_S C 130811 B161
+	{"SPK DAC", "Switch", "RX3 MIX1"},
+	// BAM_E C 130811 B161
 	{"SPK DAC", NULL, "VDD_SPKDRV"},
 
 	{"RX1 CHAIN", NULL, "RX1 MIX2"},

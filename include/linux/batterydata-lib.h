@@ -22,7 +22,11 @@
 #define PC_CC_COLS             13
 
 #define PC_TEMP_ROWS		31
+#ifdef ORG_VER//LO
 #define PC_TEMP_COLS		8
+#else
+#define PC_TEMP_COLS		9
+#endif
 
 #define MAX_SINGLE_LUT_COLS	20
 

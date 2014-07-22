@@ -622,7 +622,6 @@ static int32_t qpnp_adc_tm_thr_update(struct qpnp_adc_tm_chip *chip,
 		pr_err("Invalid btm channel idx\n");
 		return rc;
 	}
-
 	rc = qpnp_adc_tm_write_reg(chip,
 			adc_tm_data[btm_chan_idx].low_thr_lsb_addr,
 			QPNP_ADC_TM_THR_LSB_MASK(low_thr));
@@ -1303,6 +1302,12 @@ static int qpnp_adc_tm_activate_trip_type(struct thermal_zone_device *thermal,
 	sensor_mask = 1 << adc_tm->sensor_num;
 
 	pr_debug("Sensor number:%x with state:%d\n", adc_tm->sensor_num, state);
+	btm_chan = adc_tm->btm_channel_num;
+	rc = qpnp_adc_tm_get_btm_idx(btm_chan, &btm_chan_idx);
+	if (rc < 0) {
+		pr_err("Invalid btm channel idx\n");
+		return rc;
+	}
 
 	btm_chan = adc_tm->btm_channel_num;
 	rc = qpnp_adc_tm_get_btm_idx(btm_chan, &btm_chan_idx);
@@ -1659,6 +1664,10 @@ int32_t qpnp_adc_tm_channel_measure(struct qpnp_adc_tm_chip *chip,
 		ADC_OP_MEASUREMENT_INTERVAL << QPNP_OP_MODE_SHIFT;
 	chip->adc->amux_prop->chan_prop->meas_interval1 =
 						ADC_MEAS1_INTERVAL_1S;
+	if(channel==8)
+	{
+	 param->high_temp=85000; //change threshold to 85degc
+	}
 	adc_tm_rscale_fn[scale_type].chan(chip->vadc_dev, param,
 			&chip->adc->amux_prop->chan_prop->low_thr,
 			&chip->adc->amux_prop->chan_prop->high_thr);

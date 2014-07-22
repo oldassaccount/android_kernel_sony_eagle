@@ -66,7 +66,11 @@
 #define HS_DETECT_PLUG_TIME_MS (5 * 1000)
 #define HS_DETECT_PLUG_INERVAL_MS 100
 #define SWCH_REL_DEBOUNCE_TIME_MS 50
+#if 0  // BAM_S 140225 B1949
 #define SWCH_IRQ_DEBOUNCE_TIME_US 5000
+#else
+#define SWCH_IRQ_DEBOUNCE_TIME_US 10000
+#endif // BAM_E 140225
 #define BTN_RELEASE_DEBOUNCE_TIME_MS 25
 
 #define GND_MIC_SWAP_THRESHOLD 2
@@ -118,10 +122,20 @@
 /* RX_HPH_CNP_WG_TIME increases by 0.24ms */
 #define WCD9XXX_WG_TIME_FACTOR_US	240
 
+#define WCD9XXX_IRQ_MBHC_JACK_SWITCH_DEFAULT 28
+
+#if 0  // BAM_S 131024 B835
 #define WCD9XXX_V_CS_HS_MAX 500
+#else
+#define WCD9XXX_V_CS_HS_MAX 1500
+#endif  // BAM_E 131024
 #define WCD9XXX_V_CS_NO_MIC 5
 #define WCD9XXX_MB_MEAS_DELTA_MAX_MV 80
+#if 0  // BAM_S 131104 B835
 #define WCD9XXX_CS_MEAS_DELTA_MAX_MV 10
+#else
+#define WCD9XXX_CS_MEAS_DELTA_MAX_MV 80
+#endif  // BAM_E 131104
 
 static int impedance_detect_en;
 module_param(impedance_detect_en, int,
@@ -3081,7 +3095,10 @@ static void wcd9xxx_get_z(struct wcd9xxx_mbhc *mbhc, s16 *dce_z, s16 *sta_z)
 	}
 	if (dce_z) {
 		*dce_z = wcd9xxx_codec_sta_dce(mbhc, 1, false);
+
+		#if 0  // BAM_S 131104 B835
 		pr_debug("%s: dce_z 0x%x\n", __func__, *dce_z & 0xFFFF);
+		#endif // BAM_E 131104
 	}
 
 	/* Connect override from micbias */

@@ -128,7 +128,7 @@ struct fcc_sample {
 };
 
 struct bms_irq {
-	unsigned int	irq;
+	int		irq; /* [CCI] Bug#2002 Jonny_Chan*/
 	unsigned long	disabled;
 };
 
@@ -313,6 +313,15 @@ static void backup_charge_cycle(struct qpnp_bms_chip *chip);
 
 static bool bms_reset;
 
+//S:LO
+static char FuelGauge_drv_FW_version[] = "0001";
+
+char * get_FuelGauge_drv_version(void)
+{
+	return FuelGauge_drv_FW_version;
+}
+//E:LO
+
 static int qpnp_read_wrapper(struct qpnp_bms_chip *chip, u8 *val,
 			u16 base, int count)
 {
@@ -406,6 +415,16 @@ static void disable_bms_irq(struct bms_irq *irq)
 		pr_debug("disabled irq %d\n", irq->irq);
 	}
 }
+
+/* [CCI] S- Bug#2002 Jonny_Chan*/
+static void disable_bms_irq_nosync(struct bms_irq *irq)
+{
+	if (!__test_and_set_bit(0, &irq->disabled)) {
+		disable_irq_nosync(irq->irq);
+		pr_debug("disabled irq %d\n", irq->irq);
+	}
+}
+/* [CCI] E- Bug#2002 Jonny_Chan*/
 
 #define HOLD_OREG_DATA		BIT(0)
 static int lock_output_data(struct qpnp_bms_chip *chip)
@@ -923,7 +942,11 @@ static void reset_for_new_battery(struct qpnp_bms_chip *chip, int batt_temp)
 }
 
 #define OCV_RAW_UNINITIALIZED	0xFFFF
+#ifdef ORG_VER//LO
 #define MIN_OCV_UV		2000000
+#else
+#define MIN_OCV_UV		3400000
+#endif
 static int read_soc_params_raw(struct qpnp_bms_chip *chip,
 				struct raw_soc_params *raw,
 				int batt_temp)
@@ -2246,6 +2269,11 @@ static void configure_soc_wakeup(struct qpnp_bms_chip *chip,
 	qpnp_write_wrapper(chip, (u8 *)&ocv_raw,
 			chip->base + BMS1_OCV_THR0, 2);
 
+	/* [CCI] S- Bug#2002 Jonny_Chan*/
+	enable_bms_irq(&chip->ocv_thr_irq);
+	enable_bms_irq(&chip->sw_cc_thr_irq);
+	/* [CCI] E- Bug#2002 Jonny_Chan*/
+
 	pr_debug("current sw_cc_raw = 0x%llx, current ocv = 0x%hx\n",
 			current_shdw_cc_raw, (uint16_t)current_ocv_raw);
 	pr_debug("target_cc_uah = %lld, raw64 = 0x%llx, raw 36 = 0x%llx, ocv_raw = 0x%hx\n",
@@ -2376,9 +2404,15 @@ static int calculate_state_of_charge(struct qpnp_bms_chip *chip,
 	 * If the battery is full, configure the cc threshold so the system
 	 * wakes up after SoC changes
 	 */
-	if (is_battery_full(chip))
+	if (is_battery_full(chip)) {
 		configure_soc_wakeup(chip, &params,
 				batt_temp, bound_soc(new_calculated_soc - 1));
+	} else {
+		/* [CCI] S- Bug#2002 Jonny_Chan*/
+		disable_bms_irq(&chip->ocv_thr_irq);
+		disable_bms_irq(&chip->sw_cc_thr_irq);
+		/* [CCI] E- Bug#2002 Jonny_Chan*/
+	}
 done_calculating:
 	mutex_lock(&chip->last_soc_mutex);
 	previous_soc = chip->calculated_soc;
@@ -3220,8 +3254,12 @@ static void battery_status_check(struct qpnp_bms_chip *chip)
 
 		if (status == POWER_SUPPLY_STATUS_FULL) {
 			pr_debug("battery full\n");
+			/* [CCI] S- Bug#2002 Jonny_Chan*/
+			#ifdef ORG_VER
 			enable_bms_irq(&chip->ocv_thr_irq);
 			enable_bms_irq(&chip->sw_cc_thr_irq);
+			#endif
+			/* [CCI] S- Bug#2002 Jonny_Chan*/
 			recalculate_soc(chip);
 		} else if (chip->battery_status
 				== POWER_SUPPLY_STATUS_FULL) {
@@ -3520,6 +3558,7 @@ static irqreturn_t bms_sw_cc_thr_irq_handler(int irq, void *_chip)
 	struct qpnp_bms_chip *chip = _chip;
 
 	pr_debug("sw_cc_thr irq triggered\n");
+	disable_bms_irq_nosync(&chip->sw_cc_thr_irq); /* [CCI] Bug#2002 Jonny_Chan*/
 	bms_stay_awake(&chip->soc_wake_source);
 	schedule_work(&chip->recalc_work);
 	return IRQ_HANDLED;
@@ -3840,8 +3879,10 @@ static int bms_request_irqs(struct qpnp_bms_chip *chip)
 	int rc;
 
 	SPMI_REQUEST_IRQ(chip, rc, sw_cc_thr);
+	disable_bms_irq(&chip->sw_cc_thr_irq); /* [CCI] Bug#2002 Jonny_Chan*/
 	enable_irq_wake(chip->sw_cc_thr_irq.irq);
 	SPMI_REQUEST_IRQ(chip, rc, ocv_thr);
+	disable_bms_irq(&chip->ocv_thr_irq); /* [CCI] Bug#2002 Jonny_Chan*/
 	enable_irq_wake(chip->ocv_thr_irq.irq);
 	return 0;
 }
@@ -4242,6 +4283,16 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 		goto error_setup;
 	}
 
+	/* [CCI] S- Bug#2002 Jonny_Chan*/
+	#ifndef ORG_VER
+	rc = bms_request_irqs(chip);
+	if (rc) {
+		pr_err("error requesting bms irqs, rc = %d\n", rc);
+		goto unregister_dc;
+	}
+	#endif
+	/* [CCI] E- Bug#2002 Jonny_Chan*/
+
 	battery_insertion_check(chip);
 	batfet_status_check(chip);
 	battery_status_check(chip);
@@ -4275,11 +4326,15 @@ static int __devinit qpnp_bms_probe(struct spmi_device *spmi)
 		goto unregister_dc;
 	}
 
+	/* [CCI] S- Bug#2002 Jonny_Chan*/
+	#ifdef ORG_VER
 	rc = bms_request_irqs(chip);
 	if (rc) {
 		pr_err("error requesting bms irqs, rc = %d\n", rc);
 		goto unregister_dc;
 	}
+	#endif
+	/* [CCI] E- Bug#2002 Jonny_Chan*/
 
 	pr_info("probe success: soc =%d vbatt = %d ocv = %d r_sense_uohm = %u warm_reset = %d\n",
 			get_prop_bms_capacity(chip), vbatt, chip->last_ocv_uv,
